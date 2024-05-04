@@ -1,178 +1,116 @@
 #include <iostream>
-#include <Windows.h>
+#include <fstream>
+#include "windows.h"
 using namespace std;
 
-int main() {
-	__asm {
-		Macro DrawLine2DDY p1X, p1Y, p2X, p2Y
-		local l1, lp, nxt
-		mov dx, 1
-		mov ax, [p1X]
-		cmp ax, [p2X]
-		jbe l1
-		neg dx; turn delta to - 1
-		l1:
-		mov ax, [p2Y]
-			shr ax, 1; div by 2
-			mov[TempW], ax
-			mov ax, [p1X]
-			mov[pointX], ax
-			mov ax, [p1Y]
-			mov[pointY], ax
-			mov bx, [p2Y]
-			sub bx, [p1Y]
-			absolute bx
-			mov cx, [p2X]
-			sub cx, [p1X]
-			absolute cx
-			mov ax, [p2Y]
-			lp:
-		pusha
-			call PIXEL
-			popa
-			inc[pointY]
-			cmp[TempW], 0
-			jge nxt
-			add[TempW], bx; bx = (p2Y - p1Y) = deltay
-			add[pointX], dx; dx = delta
-			nxt :
-		sub[TempW], cx; cx = abs(p2X - p1X) = daltax
-			cmp[pointY], ax; ax = p2Y
-			jne lp
-			call PIXEL
-			ENDM DrawLine2DDY
+#define IMAGE_SIZE 1024
+#define DEGREES_PER_PIXEL 0.000208
 
-			Macro DrawLine2DDX p1X, p1Y, p2X, p2Y
-			local l1, lp, nxt
-			mov dx, 1
-			mov ax, [p1Y]
-			cmp ax, [p2Y]
-			jbe l1
-			neg dx; turn delta to - 1
-			l1:
-		mov ax, [p2X]
-			shr ax, 1; div by 2
-			mov[TempW], ax
-			mov ax, [p1X]
-			mov[pointX], ax
-			mov ax, [p1Y]
-			mov[pointY], ax
-			mov bx, [p2X]
-			sub bx, [p1X]
-			absolute bx
-			mov cx, [p2Y]
-			sub cx, [p1Y]
-			absolute cx
-			mov ax, [p2X]
-			lp:
-		pusha
-			call PIXEL
-			popa
-			inc[pointX]
-			cmp[TempW], 0
-			jge nxt
-			add[TempW], bx; bx = abs(p2X - p1X) = deltax
-			add[pointY], dx; dx = delta
-			nxt :
-		sub[TempW], cx; cx = abs(p2Y - p1Y) = deltay
-			cmp[pointX], ax; ax = p2X
-			jne lp
-			call PIXEL
-			ENDM DrawLine2DDX
-			Macro absolute a
-			local l1
-			cmp a, 0
-			jge l1
-			neg a
-			l1 :
-		Endm
-			MODEL small
-			STACK 256
-			DATASEG
-			TempW dw ?
-			pointX dw ?
-			pointY dw ?
-			point1X dw ?
-			point1Y dw ?
-			point2X dw ?
-			point2Y dw ?
-			Color db ?
-			CODESEG
-			start :
-		mov ax, @data
-			mov ds, ax
+void lineTo(char bits[IMAGE_SIZE][IMAGE_SIZE], int x0, int y0, int x1, int y1);
 
-			mov ax, 13h
-			int 10h; set graphic mode
+static char bits[IMAGE_SIZE][IMAGE_SIZE] = { 0 };
 
-			mov[Color], 61
-			mov[point1X], 300
-			mov[point2X], 6
-			mov[point1Y], 122
-			mov[point2Y], 88
-			call DrawLine2D
 
-			mov ah, 00h
-			int 16h
-			exit :
-		mov ax, 03h
-			int 10h; set text mode
+int main(int argc, char* argv[]) {
+    BITMAPFILEHEADER bmfh;
+    BITMAPINFOHEADER bmih;
 
-			mov ax, 4C00h
-			int 21h
+    char colorTable[1024];
 
-			PROC DrawLine2D
-			mov cx, [point1X]
-			sub cx, [point2X]
-			absolute cx
-			mov bx, [point1Y]
-			sub bx, [point2Y]
-			absolute bx
-			cmp cx, bx
-			jae DrawLine2Dp1; deltaX > deltaY
-			mov ax, [point1X]
-			mov bx, [point2X]
-			mov cx, [point1Y]
-			mov dx, [point2Y]
-			cmp cx, dx
-			jbe DrawLine2DpNxt1; point1Y <= point2Y
-			xchg ax, bx
-			xchg cx, dx
-			DrawLine2DpNxt1 :
-		mov[point1X], ax
-			mov[point2X], bx
-			mov[point1Y], cx
-			mov[point2Y], dx
-			DrawLine2DDY point1X, point1Y, point2X, point2Y
-			ret
-			DrawLine2Dp1 :
-		mov ax, [point1X]
-			mov bx, [point2X]
-			mov cx, [point1Y]
-			mov dx, [point2Y]
-			cmp ax, bx
-			jbe DrawLine2DpNxt2; point1X <= point2X
-			xchg ax, bx
-			xchg cx, dx
-			DrawLine2DpNxt2 :
-		mov[point1X], ax
-			mov[point2X], bx
-			mov[point1Y], cx
-			mov[point2Y], dx
-			DrawLine2DDX point1X, point1Y, point2X, point2Y
-			ret
-			ENDP DrawLine2D
+    int i, j, k, l;
+    char* fontPtr;
+    char* bmpPtr;
+    ofstream bmpOut("foo.bmp", ios::out | ios::binary);
 
-			PROC PIXEL
-			mov bh, 0h
-			mov cx, [pointX]
-			mov dx, [pointY]
-			mov al, [Color]
-			mov ah, 0Ch
-			int 10h
-			ret
-			ENDP PIXEL
-			END start
-	}
-	return 0;
+    if (!bmpOut) {
+        cout << "...could not open file, ending.";
+        return -1;
+    }
+    bmfh.bfType = 0x4d42;
+    bmfh.bfReserved1 = 0;
+    bmfh.bfReserved2 = 0;
+    bmfh.bfOffBits = sizeof(bmfh) + sizeof(bmih) + sizeof(colorTable);
+    bmfh.bfSize = bmfh.bfOffBits + sizeof(bits);
+
+    bmih.biSize = 40;
+    bmih.biWidth = IMAGE_SIZE;
+    bmih.biHeight = IMAGE_SIZE;
+    bmih.biPlanes = 1;
+    bmih.biBitCount = 8;
+    bmih.biCompression = 0;
+    bmih.biSizeImage = IMAGE_SIZE * IMAGE_SIZE;
+    bmih.biXPelsPerMeter = 2835; // magic number, see Wikipedia entry
+    bmih.biYPelsPerMeter = 2835;
+    bmih.biClrUsed = 256;
+    bmih.biClrImportant = 0;
+
+    ifstream inputFile("DCBoundaryFile.txt");
+    if (!inputFile) {
+        cout << "Error: Unable to open input file." << endl;
+        return -1;
+    }
+
+    double firstLongitude, firstLatitude;
+    inputFile >> firstLongitude >> firstLatitude;
+
+    int xPrev = static_cast<int>((firstLongitude - (-76.909395)) / DEGREES_PER_PIXEL);
+    int yPrev = static_cast<int>((38.995110 - firstLatitude) / DEGREES_PER_PIXEL);
+
+    double longitude, latitude;
+    while (inputFile >> longitude >> latitude) {
+        if (longitude < -77.119900 || longitude > -76.909395 || latitude < 38.791513 || latitude > 38.995110) {
+            cout << "Error: Latitude or longitude out of range." << endl;
+            return -1;
+        }
+
+        int x = static_cast<int>((longitude - (-76.909395)) / DEGREES_PER_PIXEL);
+        int y = static_cast<int>((38.995110 - latitude) / DEGREES_PER_PIXEL);
+
+        lineTo(bits, xPrev, yPrev, x, y);
+
+        xPrev = x;
+        yPrev = y;
+    }
+
+    for (i = 0; i < 256; i++) {
+        j = i * 4;
+        colorTable[j] = colorTable[j + 1] = colorTable[j + 2] = colorTable[j + 3] = i;
+    }
+
+    // Write out to the bitmap
+    char* workPtr;
+    workPtr = (char*)&bmfh;
+    bmpOut.write(workPtr, 14);
+    workPtr = (char*)&bmih;
+    bmpOut.write(workPtr, 40);
+    workPtr = &colorTable[0];
+    bmpOut.write(workPtr, sizeof(colorTable));
+    workPtr = &bits[0][0];
+    bmpOut.write(workPtr, IMAGE_SIZE * IMAGE_SIZE);
+
+    bmpOut.close();
+
+    system("mspaint foo.bmp");
+    return 0;
+}
+
+/*Convert lineTo into inline assembly*/
+void lineTo(char bits[IMAGE_SIZE][IMAGE_SIZE], int x0, int y0, int x1, int y1) {
+    int dx = abs(x1 - x0), dy = abs(y1 - y0);
+    int sx = (x0 < x1) ? 1 : -1, sy = (y0 < y1) ? 1 : -1;
+    int err = dx - dy;
+
+    while (true) {
+        bits[y0][x0] = 150;
+        if (x0 == x1 && y0 == y1) break;
+        int e2 = 2 * err;
+        if (e2 > -dy) {
+            err -= dy;
+            x0 += sx;
+        }
+        if (e2 < dx) {
+            err += dx;
+            y0 += sy;
+        }
+    }
 }
