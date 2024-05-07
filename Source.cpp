@@ -1,182 +1,151 @@
+/*
+Name: Daniel Rivas
+Course: CS230
+Lab 3 - Map Boundaries
+
+*/
+
 #include <iostream>
 #include <fstream>
 #include <cmath>
+#include "windows.h"
 using namespace std;
 
-const int WIDTH = 1024;
-const int HEIGHT = 1024;
-int bitmap[WIDTH][HEIGHT] = { 0 };
+#define IMAGE_SIZE 1024 //changed from 256
+const double MAX_LATITUDE = 38.995110;
+const double MIN_LONGITUDE = -77.119900;
+const double MIN_LATITUDE = 38.791513;
+const double MAX_LONGITUDE = -76.909395;
+const double DEGREES_PER_PIXEL = 0.00019883;
 
-// Function to draw a line segment from (x1, y1) to (x2, y2)
-void lineTo(int x1, int y1, int x2, int y2) {
-    // Inline assembly for drawing a line using Bresenham's algorithm
-    int* pixel_address;
+// Calculate x and y coordinates from geographical coordinates
+int longitudeToImageX(double longitude) {
+    return static_cast<int>((longitude - MIN_LONGITUDE) / (MAX_LONGITUDE - MIN_LONGITUDE) * IMAGE_SIZE);
+}
 
-    __asm {
-        // Store the starting coordinates
-        mov eax, x1
-        mov ebx, y1
-        mov ecx, x2
-        mov edx, y2
-        // Calculate the change in x and y
-        sub ecx, eax // dx = x2 - x1
-        sub edx, ebx // dy = y2 - y1
-        // Initialize decision parameter
-        mov esi, 0     // decision parameter (P)
-        // Calculate decision parameter for slope <= 1
-        cmp ecx, edx  // if |dx| >= |dy|
-        jge L1         // then slope <= 1
-        mov esi, 1     // decision parameter (P) for slope > 1
-        // Swap x1, y1 and x2, y2 if necessary
-        mov eax, x1
-        mov ebx, y1
-        mov ecx, x2
-        mov edx, y2
-        // Calculate the change in x and y after swapping
-        sub ecx, eax // dx = x2 - x1
-        sub edx, ebx // dy = y2 - y1
-        L1 :
-        // Initialize coordinates and increment direction
+int latitudeToImageY(double latitude) {
+    return static_cast<int>((MAX_LATITUDE - latitude) / (MAX_LATITUDE - MIN_LATITUDE) * IMAGE_SIZE);
+}
 
-        shl edx, 1     // 2 * edx -> equivalent to multiplying by 2
-            mov esi, edx
-            mov edi, 0
-            mov eax, x1
-            mov ebx, y1
-            mov ecx, x2
-            mov edx, y2
+bool isPointInRange(double longitude, double latitude) {
+    return(longitude >= MIN_LONGITUDE && longitude <= MAX_LONGITUDE &&
+        latitude >= MIN_LATITUDE && latitude <= MAX_LATITUDE);
+}
 
-            // Draw the starting pixel
-            mov eax, ebx          // eax = y1
-            imul eax, WIDTH       // eax = y1 * WIDTH
-            add eax, x1           // eax = y1 * WIDTH + x1
-            add eax, bitmap       // Add the base address of bitmap
-            mov pixel_address, eax // Store the address into the pixel_address variable
+void drawLine(int x1, int y1, int x2, int y2, char bits[IMAGE_SIZE][IMAGE_SIZE]) {
+    int dx = abs(x2 - x1);
+    int dy = abs(y2 - y1);
+    int sx = x1 < x2 ? 1 : -1;
+    int sy = y1 < y2 ? 1 : -1;
+    int err = (dx > dy ? dx : -dy) / 2;
+    int e2;
 
-            mov edi, pixel_address // Load the address into edi
-            mov byte ptr[edi], 1   // Set the pixel value to 1 (or any desired value)
-
-            mov eax, 1
-            mov ebx, 1
-            mov ecx, esi
-
-            shl ecx, 1     // 2 * ecx
-            mov esi, ecx
-
-            shl edx, 1     // 2 * edx
-            mov edi, edx
-
-            L2 :
-        // Draw the line segment
-        add eax, ebx
-            cmp eax, esi
-            jl L3
-            mov eax, 0
-            add ebx, 2
-            L3:
-        add edx, ebx
-            cmp edx, edi
-            jl L4
-            mov edx, 0
-            add ebx, 2
-            L4 :
-            add eax, ecx
-            add edx, edi
-            add ebx, 2
-
-            // Calculate the next pixel address using C++
-            mov eax, ebx          // eax = y1
-            imul eax, WIDTH       // eax = y1 * WIDTH
-            add eax, x1           // eax = y1 * WIDTH + x1
-            add eax, bitmap       // Add the base address of bitmap
-            mov pixel_address, eax // Store the address into the pixel_address variable
-
-            mov edi, pixel_address // Load the address into edi
-            mov byte ptr[edi], 1   // Set the next pixel value to 1
-
-            // Check if the end point is reached
-            mov eax, x1
-            mov ebx, y1
-            mov ecx, x2
-            mov edx, y2
-            cmp eax, ecx
-            jne L5
-            cmp ebx, edx
-            je L6
-            L5 :
-        // Update coordinates
-        inc eax // Increment x
-            mov ebx, y1
-            mov edx, y2
-            sub edx, ebx // Calculate dy
-            jge L7
-            dec ebx // Decrement y
-            L7 :
-        mov[x1], eax // Store the new x coordinate
-            mov[y1], ebx // Store the new y coordinate
-            jmp L2 // Continue drawing
-            L6 :
+    while (true) {
+        if (x1 >= 0 && x1 < IMAGE_SIZE && y1 >= 0 && y1 < IMAGE_SIZE) {
+            // Reflect across the y-axis
+            bits[x1][IMAGE_SIZE - 1 - y1] = 255;
+        }
+        if (x1 == x2 && y1 == y2) break;
+        e2 = err;
+        if (e2 > -dx) { err -= dy; x1 += sx; }
+        if (e2 < dy) { err += dx; y1 += sy; }
     }
 }
 
-int main() {
-    // Open input file
+
+int main(int argc, char* argv[]) {
     ifstream inputFile("DCBoundaryFile.txt");
-    if (!inputFile) {
-        cerr << "Error opening file." << endl;
+    if (!inputFile.is_open()) {
+        cerr << "Error: Unable to open input file." << endl;
         return 1;
     }
-    
-    // Read and process input
-    double latitude, longitude;
-    inputFile >> latitude >> longitude;
-    double firstLatitude = latitude;
-    double firstLongitude = longitude;
 
-    // Check if first latitude and longitude are within range
-    if (latitude < 38.791513 || latitude > 38.995110) {
-        cout << "Value " << latitude << " out of range, ending." << endl;
-        return 3;
-    }
-    if (longitude < -77.119900 || longitude > -76.909395) {
-        cout << "Value " << longitude << " out of range, ending." << endl;
-        return 3;
+    BITMAPFILEHEADER bmfh;
+    BITMAPINFOHEADER bmih;
+    char colorTable[1024];
+    char bits[IMAGE_SIZE][IMAGE_SIZE] = { 0 };
+
+    // Define and open the output file
+    ofstream bmpOut("gradient_with_line.bmp", ios::out + ios::binary);
+    if (!bmpOut) {
+        cout << "Could not open file, ending.";
+        return -1;
     }
 
-    // Loop through input file
-    while (inputFile >> latitude >> longitude) {
-        // Check if latitude and longitude are within range
-        if (latitude < 38.791513 || latitude > 38.995110) {
-            cout << "Value " << latitude << " out of range, ending." << endl;
-            return 3;
+    // Initialize the bitmap file header with static values
+    bmfh.bfType = 0x4d42;
+    bmfh.bfReserved1 = 0;
+    bmfh.bfReserved2 = 0;
+    bmfh.bfOffBits = sizeof(bmfh) + sizeof(bmih) + sizeof(colorTable);
+    bmfh.bfSize = bmfh.bfOffBits + sizeof(bits);
+
+    // Initialize the bitmap information header with static values
+    bmih.biSize = 40;
+    bmih.biWidth = IMAGE_SIZE;
+    bmih.biHeight = IMAGE_SIZE;
+    bmih.biPlanes = 1;
+    bmih.biBitCount = 8;
+    bmih.biCompression = 0;
+    bmih.biSizeImage = IMAGE_SIZE * IMAGE_SIZE;
+    bmih.biXPelsPerMeter = 2835; // magic number, see Wikipedia entry
+    bmih.biYPelsPerMeter = 2835;
+    bmih.biClrUsed = 256;
+    bmih.biClrImportant = 0;
+
+    // Build color table
+    for (int i = 0; i < 256; i++) {
+        int j = i * 4;
+        colorTable[j] = colorTable[j + 1] = colorTable[j + 2] = colorTable[j + 3] = i;
+    }
+
+    // Build grayscale array of bits in image, with gradient
+    for (int i = 0; i < IMAGE_SIZE; i++) {
+        for (int j = 0; j < IMAGE_SIZE; j++) {
+            bits[i][j] = 0; //black table
         }
-        if (longitude < -77.119900 || longitude > -76.909395) {
-            cout << "Value " << longitude << " out of range, ending." << endl;
-            return 3;
+    }
+
+    double prevLongitude, prevLatitude;
+    inputFile >> prevLongitude >> prevLatitude;
+
+    // Convert geographical coordinates to image coordinates
+    int x1 = static_cast<int>(longitudeToImageX(prevLongitude));
+    int y1 = static_cast<int>(latitudeToImageY(prevLatitude));
+    double longitude, latitude;
+
+    // Loop to draw lines from the previous to the current points
+    while (inputFile >> longitude >> latitude) {
+        if (isPointInRange(longitude, latitude)) {
+            int x2 = static_cast<int>(longitudeToImageX(longitude));
+            int y2 = static_cast<int>(latitudeToImageY(latitude));
+
+            // Draw a line between the two points
+            drawLine(x1, y1, x2, y2, bits);
+
+            // Update to the next point
+            x1 = x2;
+            y1 = y2;
         }
-
-        // Calculate pixel positions
-        int x1 = static_cast<int>((longitude - (-76.909395)) / 0.00019883);
-        int y1 = static_cast<int>((latitude - 38.791513) / 0.00019883);
-        int x2, y2;
-
-        // Read next point
-        inputFile >> latitude >> longitude;
-
-        // Calculate pixel positions for next point
-        x2 = static_cast<int>((longitude - (-76.909395)) / 0.00019883);
-        y2 = static_cast<int>((latitude - 38.791513) / 0.00019883);
-
-        // Draw line segment
-        lineTo(x1, y1, x2, y2);
     }
 
-    // Compare last point to first point
-    if (latitude == firstLatitude && longitude == firstLongitude) {
-        // Write output bitmap
-        // Invoke Paint to display bitmap
-        cout << "Pierce College CS230 Spring 2024 Lab Assignment 3 - Your Name" << endl;
-    }
+
+    inputFile.close();
+
+    // Write out to the bitmap
+    char* workPtr;
+    workPtr = reinterpret_cast<char*>(&bmfh);
+    bmpOut.write(workPtr, 14);
+    workPtr = reinterpret_cast<char*>(&bmih);
+    bmpOut.write(workPtr, 40);
+    workPtr = &colorTable[0];
+    bmpOut.write(workPtr, sizeof(colorTable));
+    workPtr = &bits[0][0];
+    bmpOut.write(workPtr, IMAGE_SIZE * IMAGE_SIZE);
+    bmpOut.close();
+
+    // Now let's look at our creation
+    system("mspaint gradient_with_line.bmp");
 
     return 0;
 }
+
