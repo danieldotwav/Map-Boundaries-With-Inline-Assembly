@@ -7,6 +7,7 @@ Date Modified: 05/07/2024
 
 #include <iostream>
 #include <fstream>
+#include <string>
 #include <cmath>
 #include "windows.h"
 using namespace std;
@@ -32,7 +33,7 @@ bool isPointInRange(double longitude, double latitude) {
         latitude >= MIN_LATITUDE && latitude <= MAX_LATITUDE);
 }
 
-void drawLine(int x1, int y1, int x2, int y2, char bits[IMAGE_SIZE][IMAGE_SIZE]) {
+void lineTo(int x1, int y1, int x2, int y2, char bits[IMAGE_SIZE][IMAGE_SIZE]) {
     int dx = abs(x2 - x1);
     int dy = abs(y2 - y1);
     int sx = x1 < x2 ? 1 : -1;
@@ -42,10 +43,13 @@ void drawLine(int x1, int y1, int x2, int y2, char bits[IMAGE_SIZE][IMAGE_SIZE])
 
     while (true) {
         if (x1 >= 0 && x1 < IMAGE_SIZE && y1 >= 0 && y1 < IMAGE_SIZE) {
-            // Reflect across the y-axis
             bits[x1][IMAGE_SIZE - 1 - y1] = 255;
         }
-        if (x1 == x2 && y1 == y2) break;
+
+        if (x1 == x2 && y1 == y2) {
+            break;
+        }
+
         e2 = err;
         if (e2 > -dx) { err -= dy; x1 += sx; }
         if (e2 < dy) { err += dx; y1 += sy; }
@@ -56,7 +60,7 @@ void drawLine(int x1, int y1, int x2, int y2, char bits[IMAGE_SIZE][IMAGE_SIZE])
 int main(int argc, char* argv[]) {
     ifstream inputFile("DCBoundaryFile.txt");
     if (!inputFile.is_open()) {
-        cerr << "Error: Unable to open input file." << endl;
+        cerr << "Error: Unable to open input file. Terminating program..." << endl;
         return 1;
     }
 
@@ -65,11 +69,11 @@ int main(int argc, char* argv[]) {
     char colorTable[1024];
     char bits[IMAGE_SIZE][IMAGE_SIZE] = { 0 };
 
-    // Define and open the output file
-    ofstream bmpOut("gradient_with_line.bmp", ios::out + ios::binary);
+    // Open output file
+    ofstream bmpOut("boundary_img.bmp", ios::out + ios::binary);
     if (!bmpOut) {
-        cout << "Could not open file, ending.";
-        return -1;
+        cout << "Error: Unable to open file";
+        return 1;
     }
 
     // Initialize the bitmap file header with static values
@@ -87,23 +91,27 @@ int main(int argc, char* argv[]) {
     bmih.biBitCount = 8;
     bmih.biCompression = 0;
     bmih.biSizeImage = IMAGE_SIZE * IMAGE_SIZE;
-    bmih.biXPelsPerMeter = 2835; // magic number, see Wikipedia entry
+    bmih.biXPelsPerMeter = 2835;
     bmih.biYPelsPerMeter = 2835;
     bmih.biClrUsed = 256;
     bmih.biClrImportant = 0;
 
-    // Build color table
+    // Initialize color table
     for (int i = 0; i < 256; i++) {
         int j = i * 4;
         colorTable[j] = colorTable[j + 1] = colorTable[j + 2] = colorTable[j + 3] = i;
     }
 
-    // Build grayscale array of bits in image, with gradient
+    // Initialize bitmap to all black
     for (int i = 0; i < IMAGE_SIZE; i++) {
         for (int j = 0; j < IMAGE_SIZE; j++) {
-            bits[i][j] = 0; //black table
+            bits[i][j] = 0;
         }
     }
+
+    // Discard first line from file
+    string line;
+    getline(inputFile, line);
 
     double prevLongitude, prevLatitude;
     inputFile >> prevLongitude >> prevLatitude;
@@ -120,14 +128,13 @@ int main(int argc, char* argv[]) {
             int y2 = static_cast<int>(latitudeToImageY(latitude));
 
             // Draw a line between the two points
-            drawLine(x1, y1, x2, y2, bits);
+            lineTo(x1, y1, x2, y2, bits);
 
             // Update to the next point
             x1 = x2;
             y1 = y2;
         }
     }
-
 
     inputFile.close();
 
@@ -144,7 +151,7 @@ int main(int argc, char* argv[]) {
     bmpOut.close();
 
     // Now let's look at our creation
-    system("mspaint gradient_with_line.bmp");
+    system("mspaint boundary_img.bmp");
 
     return 0;
 }
