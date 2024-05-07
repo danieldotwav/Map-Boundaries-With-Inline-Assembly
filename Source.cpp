@@ -1,8 +1,8 @@
 /*
 Name: Daniel Rivas
 Course: CS230
-Lab 3 - Map Boundaries
-
+Assignment: Lab 3 - Map Boundaries
+Date Modified: 05/07/2024
 */
 
 #include <iostream>
@@ -11,7 +11,7 @@ Lab 3 - Map Boundaries
 #include "windows.h"
 using namespace std;
 
-#define IMAGE_SIZE 1024 //changed from 256
+#define IMAGE_SIZE 1024
 const double MAX_LATITUDE = 38.995110;
 const double MIN_LONGITUDE = -77.119900;
 const double MIN_LATITUDE = 38.791513;
@@ -20,15 +20,15 @@ const double DEGREES_PER_PIXEL = 0.00019883;
 
 // Calculate x and y coordinates from geographical coordinates
 int longitudeToImageX(double longitude) {
-    return static_cast<int>((longitude - MIN_LONGITUDE) / (MAX_LONGITUDE - MIN_LONGITUDE) * IMAGE_SIZE);
+    return ((longitude - MIN_LONGITUDE) / (MAX_LONGITUDE - MIN_LONGITUDE) * IMAGE_SIZE);
 }
 
 int latitudeToImageY(double latitude) {
-    return static_cast<int>((MAX_LATITUDE - latitude) / (MAX_LATITUDE - MIN_LATITUDE) * IMAGE_SIZE);
+    return ((MAX_LATITUDE - latitude) / (MAX_LATITUDE - MIN_LATITUDE) * IMAGE_SIZE);
 }
 
 bool isPointInRange(double longitude, double latitude) {
-    return(longitude >= MIN_LONGITUDE && longitude <= MAX_LONGITUDE &&
+    return (longitude >= MIN_LONGITUDE && longitude <= MAX_LONGITUDE &&
         latitude >= MIN_LATITUDE && latitude <= MAX_LATITUDE);
 }
 
