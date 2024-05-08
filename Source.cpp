@@ -21,11 +21,11 @@ const double DEGREES_PER_PIXEL = 0.00019883;
 
 // Calculate x and y coordinates from geographical coordinates
 int longitudeToImageX(double longitude) {
-    return ((longitude - MIN_LONGITUDE) / (MAX_LONGITUDE - MIN_LONGITUDE) * IMAGE_SIZE);
+    return ((longitude - MIN_LONGITUDE) / (MAX_LONGITUDE - MIN_LONGITUDE)) * IMAGE_SIZE;
 }
 
 int latitudeToImageY(double latitude) {
-    return ((MAX_LATITUDE - latitude) / (MAX_LATITUDE - MIN_LATITUDE) * IMAGE_SIZE);
+    return IMAGE_SIZE - 1 - static_cast<int>((latitude - MIN_LATITUDE) / (MAX_LATITUDE - MIN_LATITUDE) * IMAGE_SIZE);
 }
 
 bool isPointInRange(double longitude, double latitude) {
@@ -117,22 +117,60 @@ int main(int argc, char* argv[]) {
     inputFile >> prevLongitude >> prevLatitude;
 
     // Convert geographical coordinates to image coordinates
-    int x1 = static_cast<int>(longitudeToImageX(prevLongitude));
-    int y1 = static_cast<int>(latitudeToImageY(prevLatitude));
+    /*int x1 = static_cast<int>(longitudeToImageX(prevLongitude));
+    int y1 = static_cast<int>(latitudeToImageY(prevLatitude));*/
     double longitude, latitude;
+    double x1, y1;
+
+    _asm{
+        movsd       xmm0, mmword ptr[prevLatitude];
+        subsd       xmm0, mmword ptr[MIN_LATITUDE];
+        divsd       xmm0, mmword ptr[DEGREES_PER_PIXEL];
+        movsd       mmword ptr[x1], xmm0;
+
+        movsd       xmm0, mmword ptr[MAX_LONGITUDE];
+        subsd       xmm0, mmword ptr[prevLongitude];
+        divsd       xmm0, mmword ptr[DEGREES_PER_PIXEL];
+        movsd       mmword ptr[y1], xmm0;
+    }
+
+    double x2, y2;
 
     // Loop to draw lines from the previous to the current points
     while (inputFile >> longitude >> latitude) {
         if (isPointInRange(longitude, latitude)) {
-            int x2 = static_cast<int>(longitudeToImageX(longitude));
-            int y2 = static_cast<int>(latitudeToImageY(latitude));
+            /*int x2 = static_cast<int>(longitudeToImageX(longitude));
+            int y2 = static_cast<int>(latitudeToImageY(latitude));*/
 
-            // Draw a line between the two points
-            lineTo(x1, y1, x2, y2, bits);
+            //// Draw a line between the two points
+            //lineTo(x1, y1, x2, y2, bits);
 
-            // Update to the next point
-            x1 = x2;
-            y1 = y2;
+            //// Update to the next point
+            //x1 = x2;
+            //y1 = y2;
+            _asm {
+                movsd       xmm0, mmword ptr[latitude];
+                subsd       xmm0, mmword ptr[MIN_LATITUDE];
+                divsd       xmm0, mmword ptr[DEGREES_PER_PIXEL];
+                movsd       mmword ptr[x2], xmm0;
+
+                movsd       xmm0, mmword ptr[MAX_LONGITUDE];
+                subsd       xmm0, mmword ptr[longitude];
+                divsd       xmm0, mmword ptr[DEGREES_PER_PIXEL];
+                movsd       mmword ptr[y2], xmm0;
+            }
+
+            lineTo(static_cast<int>(x1), static_cast<int>(y1), static_cast<int>(x2), static_cast<int>(y2), bits);
+
+            _asm {
+                movsd       xmm0, mmword ptr[x2];
+                movsd       mmword ptr[x1], xmm0;
+
+                movsd       xmm0, mmword ptr[y2];
+                movsd       mmword ptr[y1], xmm0;
+            }
+
+            /*lineCount++;*/
         }
     }
 
