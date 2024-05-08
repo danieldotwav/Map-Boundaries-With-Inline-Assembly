@@ -19,6 +19,9 @@ const double MIN_LATITUDE = 38.791513;
 const double MAX_LONGITUDE = -76.909395;
 const double DEGREES_PER_PIXEL = 0.00019883;
 
+const double scaleLat = IMAGE_SIZE / (MAX_LATITUDE - MIN_LATITUDE);
+const double scaleLong = IMAGE_SIZE / (MAX_LONGITUDE - MIN_LONGITUDE);
+
 // Calculate x and y coordinates from geographical coordinates
 int longitudeToImageX(double longitude) {
     return ((longitude - MIN_LONGITUDE) / (MAX_LONGITUDE - MIN_LONGITUDE)) * IMAGE_SIZE;
@@ -28,11 +31,12 @@ int latitudeToImageY(double latitude) {
     return IMAGE_SIZE - 1 - static_cast<int>((latitude - MIN_LATITUDE) / (MAX_LATITUDE - MIN_LATITUDE) * IMAGE_SIZE);
 }
 
-bool isPointInRange(double longitude, double latitude) {
+bool coordinateIsInRange(double longitude, double latitude) {
     return (longitude >= MIN_LONGITUDE && longitude <= MAX_LONGITUDE &&
         latitude >= MIN_LATITUDE && latitude <= MAX_LATITUDE);
 }
 
+// Bresenham's Line Algorithm
 void lineTo(int x1, int y1, int x2, int y2, char bits[IMAGE_SIZE][IMAGE_SIZE]) {
     int dx = abs(x2 - x1);
     int dy = abs(y2 - y1);
@@ -43,7 +47,7 @@ void lineTo(int x1, int y1, int x2, int y2, char bits[IMAGE_SIZE][IMAGE_SIZE]) {
 
     while (true) {
         if (x1 >= 0 && x1 < IMAGE_SIZE && y1 >= 0 && y1 < IMAGE_SIZE) {
-            bits[x1][IMAGE_SIZE - 1 - y1] = 255;
+            bits[y1][x1] = 255;
         }
 
         if (x1 == x2 && y1 == y2) {
@@ -58,18 +62,20 @@ void lineTo(int x1, int y1, int x2, int y2, char bits[IMAGE_SIZE][IMAGE_SIZE]) {
 
 
 int main(int argc, char* argv[]) {
+    // Open the input file containing boundary data
     ifstream inputFile("DCBoundaryFile.txt");
     if (!inputFile.is_open()) {
         cerr << "Error: Unable to open input file. Terminating program..." << endl;
         return 1;
     }
 
+    // Bitmap file and info headers
     BITMAPFILEHEADER bmfh;
     BITMAPINFOHEADER bmih;
-    char colorTable[1024];
+    char colorTable[1024]; // Color table for an 8-bit grayscale image
     char bits[IMAGE_SIZE][IMAGE_SIZE] = { 0 };
 
-    // Open output file
+    // Open the output bitmap file for binary writing
     ofstream bmpOut("boundary_img.bmp", ios::out + ios::binary);
     if (!bmpOut) {
         cout << "Error: Unable to open file";
@@ -96,81 +102,78 @@ int main(int argc, char* argv[]) {
     bmih.biClrUsed = 256;
     bmih.biClrImportant = 0;
 
-    // Initialize color table
+    // Initialize the greyscale color table
     for (int i = 0; i < 256; i++) {
         int j = i * 4;
+        // Fill each color with the same grayscale value (R, G, B, reserved)
         colorTable[j] = colorTable[j + 1] = colorTable[j + 2] = colorTable[j + 3] = i;
     }
 
-    // Initialize bitmap to all black
+    // Clear the bitmap to all black
     for (int i = 0; i < IMAGE_SIZE; i++) {
         for (int j = 0; j < IMAGE_SIZE; j++) {
             bits[i][j] = 0;
         }
     }
 
-    // Discard first line from file
+    // Discard first line (header) in the input file
     string line;
     getline(inputFile, line);
 
+    // Read the first pair of geographical coordinates
     double prevLongitude, prevLatitude;
     inputFile >> prevLongitude >> prevLatitude;
 
-    // Convert geographical coordinates to image coordinates
-    /*int x1 = static_cast<int>(longitudeToImageX(prevLongitude));
-    int y1 = static_cast<int>(latitudeToImageY(prevLatitude));*/
+    // Convert the first geographical coordinates to image coordinates
     double longitude, latitude;
     double x1, y1;
 
-    _asm{
-        movsd       xmm0, mmword ptr[prevLatitude];
-        subsd       xmm0, mmword ptr[MIN_LATITUDE];
-        divsd       xmm0, mmword ptr[DEGREES_PER_PIXEL];
-        movsd       mmword ptr[x1], xmm0;
+    // Inline assembly for converting the first geographical coordinates to image coordinates
+    _asm {
+        // Calculate the pixel y-coordinate for the first point
+        movsd   xmm0, qword ptr[prevLatitude]; // Load prevLatitude
+        subsd   xmm0, qword ptr[MIN_LATITUDE]; // Subtract MIN_LATITUDE
+        mulsd   xmm0, qword ptr[scaleLat];     // Multiply by scaleLat
+        movsd   qword ptr[y1], xmm0;           // Store y1
 
-        movsd       xmm0, mmword ptr[MAX_LONGITUDE];
-        subsd       xmm0, mmword ptr[prevLongitude];
-        divsd       xmm0, mmword ptr[DEGREES_PER_PIXEL];
-        movsd       mmword ptr[y1], xmm0;
+        // Calculate the pixel x-coordinate for the first point
+        movsd   xmm0, qword ptr[prevLongitude]; // Load prevLongitude
+        subsd   xmm0, qword ptr[MIN_LONGITUDE]; // Subtract MIN_LONGITUDE
+        mulsd   xmm0, qword ptr[scaleLong];     // Multiply by scaleLong
+        movsd   qword ptr[x1], xmm0;            // Store x1
     }
-
-    double x2, y2;
 
     // Loop to draw lines from the previous to the current points
     while (inputFile >> longitude >> latitude) {
-        if (isPointInRange(longitude, latitude)) {
-            /*int x2 = static_cast<int>(longitudeToImageX(longitude));
-            int y2 = static_cast<int>(latitudeToImageY(latitude));*/
-
-            //// Draw a line between the two points
-            //lineTo(x1, y1, x2, y2, bits);
-
-            //// Update to the next point
-            //x1 = x2;
-            //y1 = y2;
-            _asm {
-                movsd       xmm0, mmword ptr[latitude];
-                subsd       xmm0, mmword ptr[MIN_LATITUDE];
-                divsd       xmm0, mmword ptr[DEGREES_PER_PIXEL];
-                movsd       mmword ptr[x2], xmm0;
-
-                movsd       xmm0, mmword ptr[MAX_LONGITUDE];
-                subsd       xmm0, mmword ptr[longitude];
-                divsd       xmm0, mmword ptr[DEGREES_PER_PIXEL];
-                movsd       mmword ptr[y2], xmm0;
-            }
-
-            lineTo(static_cast<int>(x1), static_cast<int>(y1), static_cast<int>(x2), static_cast<int>(y2), bits);
+        if (coordinateIsInRange(longitude, latitude)) {
+            // Rinse and repeat
+            double x2, y2;
 
             _asm {
-                movsd       xmm0, mmword ptr[x2];
-                movsd       mmword ptr[x1], xmm0;
+                // Calculate the pixel y-coordinate for the next point
+                movsd   xmm0, qword ptr[latitude]; // Load latitude
+                subsd   xmm0, qword ptr[MIN_LATITUDE]; // Subtract MIN_LATITUDE
+                mulsd   xmm0, qword ptr[scaleLat];     // Multiply by scaleLat
+                movsd   qword ptr[y2], xmm0;           // Store y2
 
-                movsd       xmm0, mmword ptr[y2];
-                movsd       mmword ptr[y1], xmm0;
+                // Calculate the pixel x-coordinate for the next point
+                movsd   xmm0, qword ptr[longitude]; // Load longitude
+                subsd   xmm0, qword ptr[MIN_LONGITUDE]; // Subtract MIN_LONGITUDE
+                mulsd   xmm0, qword ptr[scaleLong];     // Multiply by scaleLong
+                movsd   qword ptr[x2], xmm0;            // Store x2
             }
 
-            /*lineCount++;*/
+            // Draw a line between the two points on the bitmap
+            lineTo(x1, y1, x2, y2, bits);
+
+            // Update previous coordinates with new coordinates
+            _asm {
+                movsd   xmm0, qword ptr[x2]; // Load x2
+                movsd   qword ptr[x1], xmm0; // Update x1 with x2
+
+                movsd   xmm0, qword ptr[y2]; // Load y2
+                movsd   qword ptr[y1], xmm0; // Update y1 with y2
+            }
         }
     }
 
@@ -188,7 +191,7 @@ int main(int argc, char* argv[]) {
     bmpOut.write(workPtr, IMAGE_SIZE * IMAGE_SIZE);
     bmpOut.close();
 
-    // Now let's look at our creation
+    // Pray there is a God
     system("mspaint boundary_img.bmp");
 
     return 0;
